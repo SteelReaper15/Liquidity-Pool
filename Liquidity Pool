@@ -1,0 +1,101 @@
+from web3 import Web3
+from decimal import Decimal
+import json
+
+# Connect to Ethereum or other EVM network
+INFURA_URL = "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
+w3 = Web3(Web3.HTTPProvider(INFURA_URL))
+
+# Check if connected to the network
+if not w3.isConnected():
+    print("Connection failed.")
+    exit()
+
+# Your wallet details
+private_key = 'YOUR_PRIVATE_KEY'
+address = w3.eth.account.privateKeyToAccount(private_key).address
+
+# ERC-20 Token contract address (for example, USDT)
+token_address = "0xA0b86991C6218b36c1d19D4a2e9eb0ce3606e2e1"  # USDC (example)
+token_abi = json.loads('[...]')  # Load the ABI of the ERC-20 token contract
+
+# Uniswap or any DEX contract details (for example, Uniswap V2 LP contract)
+lp_address = "0x5C69bEe701ef814a2B6a3EDD4A38FECF1e8bC4C3"  # UniswapV2 Router address
+router_abi = json.loads('[...]')  # Load Uniswap V2 Router ABI
+
+# Token instance
+token_contract = w3.eth.contract(address=token_address, abi=token_abi)
+
+# LP Router contract instance (e.g., UniswapV2 Router)
+router_contract = w3.eth.contract(address=lp_address, abi=router_abi)
+
+# Token amounts to deposit (in smallest units, like Wei for ETH)
+amount_token_1 = Decimal('100') * 10**18  # Example: 100 tokens of token_1
+amount_token_2 = Decimal('50') * 10**18   # Example: 50 tokens of token_2
+
+# Check if the account has enough balance
+balance_token_1 = token_contract.functions.balanceOf(address).call()
+if balance_token_1 < amount_token_1:
+    print("Insufficient token_1 balance.")
+    exit()
+
+# Approve the Uniswap contract to spend tokens on behalf of the user
+approve_token_1_txn = token_contract.functions.approve(
+    lp_address, amount_token_1).buildTransaction({
+        'from': address,
+        'gas': 100000,
+        'gasPrice': w3.toWei('20', 'gwei'),
+        'nonce': w3.eth.getTransactionCount(address)
+    })
+
+# Sign and send the approval transaction
+signed_txn = w3.eth.account.signTransaction(approve_token_1_txn, private_key)
+tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
+print(f"Token_1 approval transaction sent: {tx_hash.hex()}")
+
+# Similarly, approve token_2
+approve_token_2_txn = token_contract.functions.approve(
+    lp_address, amount_token_2).buildTransaction({
+        'from': address,
+        'gas': 100000,
+        'gasPrice': w3.toWei('20', 'gwei'),
+        'nonce': w3.eth.getTransactionCount(address)
+    })
+
+signed_txn = w3.eth.account.signTransaction(approve_token_2_txn, private_key)
+tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
+print(f"Token_2 approval transaction sent: {tx_hash.hex()}")
+
+# Wait for transaction confirmation (optional)
+w3.eth.waitForTransactionReceipt(tx_hash)
+
+# Deposit tokens into the liquidity pool
+add_liquidity_txn = router_contract.functions.addLiquidity(
+    token_address,  # Token 1 address
+    token_address,  # Token 2 address (can be different)
+    amount_token_1,  # Amount of Token 1
+    amount_token_2,  # Amount of Token 2
+    0,  # Min amount of Token 1 to receive (slippage tolerance)
+    0,  # Min amount of Token 2 to receive (slippage tolerance)
+    address,  # Recipient of liquidity tokens
+    int(w3.eth.getBlock('latest')['timestamp']) + 1000  # Deadline timestamp
+).buildTransaction({
+    'from': address,
+    'gas': 200000,
+    'gasPrice': w3.toWei('20', 'gwei'),
+    'nonce': w3.eth.getTransactionCount(address) + 1  # Increment nonce
+})
+
+# Sign and send the transaction
+signed_txn = w3.eth.account.signTransaction(add_liquidity_txn, private_key)
+tx_hash = w3.eth.sendRawTransaction(signed_txn.rawTransaction)
+
+# Output the transaction hash
+print(f"Liquidity deposit transaction sent: {tx_hash.hex()}")
+
+# Wait for transaction confirmation
+receipt = w3.eth.waitForTransactionReceipt(tx_hash)
+if receipt['status'] == 1:
+    print("Liquidity successfully deposited into the pool!")
+else:
+    print("Transaction failed.")
